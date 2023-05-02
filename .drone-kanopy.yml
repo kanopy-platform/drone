@@ -20,6 +20,10 @@ steps:
   when:
     event: [pull_request]
 
+trigger:
+  branch:
+  - release
+
 ---
 kind: pipeline
 name: linux-amd64

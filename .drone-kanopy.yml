@@ -15,6 +15,7 @@ steps:
 - name: build
   image: plugins/kaniko-ecr
   settings:
+    dockerfile: docker/Dockerfile.server.linux.amd64
     no_push: true
   when:
     event: [pull_request]

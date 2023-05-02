@@ -13,6 +13,14 @@ steps:
   - go build -o /dev/null -tags "oss nolimit" github.com/drone/drone/cmd/drone-server
 
 - name: build
+  image: golang:1.14.15
+  commands:
+  - sh scripts/build.sh
+  environment:
+    GOARCH: amd64
+    GOOS: linux
+
+- name: build-image
   image: plugins/kaniko-ecr
   settings:
     dockerfile: docker/Dockerfile.server.linux.amd64

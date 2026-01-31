@@ -1,4 +1,4 @@
-// Copyright 2019 Drone IO, Inc.
+// Copyright 2024 Drone IO, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package builds
+package stages
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -24,9 +25,7 @@ import (
 	"github.com/go-chi/chi"
 )
 
-// HandleFind returns an http.HandlerFunc that writes json-encoded
-// build details to the response body.
-func HandleFind(
+func HandleDeclineBuild(
 	repos core.RepositoryStore,
 	builds core.BuildStore,
 	stages core.StageStore,
@@ -36,31 +35,53 @@ func HandleFind(
 			namespace = chi.URLParam(r, "owner")
 			name      = chi.URLParam(r, "name")
 		)
-		number, err := strconv.ParseInt(chi.URLParam(r, "number"), 10, 64)
+		buildNumber, err := strconv.ParseInt(chi.URLParam(r, "number"), 10, 64)
 		if err != nil {
-			render.BadRequest(w, err)
+			render.BadRequestf(w, "Invalid build number")
 			return
 		}
+
 		repo, err := repos.FindName(r.Context(), namespace, name)
 		if err != nil {
-			render.NotFound(w, err)
+			render.NotFoundf(w, "Repository not found")
 			return
 		}
-		build, err := builds.FindNumber(r.Context(), repo.ID, number)
+		build, err := builds.FindNumber(r.Context(), repo.ID, buildNumber)
 		if err != nil {
-			render.NotFound(w, err)
+			render.NotFoundf(w, "Build not found")
 			return
 		}
-		stages, err := stages.ListSteps(r.Context(), build.ID)
+
+		stageList, err := stages.List(r.Context(), build.ID)
+		if err != nil {
+			render.NotFoundf(w, "Stages not found")
+			return
+		}
+
+		for _, stage := range stageList {
+			if stage.Status != core.StatusBlocked {
+				err := fmt.Errorf("Cannot decline build with status %q", stage.Status)
+				render.BadRequest(w, err)
+				return
+			}
+
+			stage.Status = core.StatusDeclined
+			err = stages.Update(r.Context(), stage)
+			if err != nil {
+				render.InternalError(w, err)
+				return
+			}
+		}
+
+		build.Status = core.StatusDeclined
+		err = builds.Update(r.Context(), build)
 		if err != nil {
 			render.InternalError(w, err)
 			return
 		}
-		render.JSON(w, &buildWithStages{build, stages}, 200)
+		// TODO delete any pending stages from the build queue
+		// TODO update any pending stages to skipped in the database
+		// TODO update the build status to error in the source code management system
+		w.WriteHeader(http.StatusNoContent)
 	}
-}
-
-type buildWithStages struct {
-	*core.Build
-	Stages []*core.Stage `json:"stages,omitempty"`
 }
